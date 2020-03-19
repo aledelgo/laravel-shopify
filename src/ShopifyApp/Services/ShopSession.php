@@ -35,6 +35,13 @@ class ShopSession
     const TOKEN = 'shopify_token';
 
     /**
+     * The hmac of current oauth session (if any).
+     *
+     * @var string
+     */
+    const SHOPIFY_SESSION_ID = 'shopify_session_id';
+
+    /**
      * The offline grant key.
      *
      * @var string
@@ -135,6 +142,30 @@ class ShopSession
         return Session::get(self::DOMAIN);
     }
 
+    public $userChanged = false;
+
+    /**
+     * Compare 2 user object (deserialized from shopify session token if grant=="per_user")
+     * @param $oldUser
+     * @param $newUser
+     * @return bool
+     */
+    private function sessionUsersEquals($oldUser, $newUser)
+    {
+        if (empty($oldUser) && empty($newUser)) {
+            return true;
+        }
+
+        if (empty($oldUser) != empty($newUser)) {
+            return false;
+        }
+
+        $json1 = json_encode($oldUser);
+        $json2 = json_encode($newUser);
+
+        return (strcmp($json1, $json2) == 0);
+    }
+
     /**
      * Stores the access token and user (if any).
      * Uses database for acess token if it was an offline authentication.
@@ -148,17 +179,28 @@ class ShopSession
         // Grab the token
         $token = $access->access_token;
 
+        $previousSessionUser = Session::get(self::USER);
+
         // Per-User
         if (property_exists($access, 'associated_user')) {
             // We have a user, so access will live only in session
             $this->user = $access->associated_user;
 
+            if (!$this->sessionUsersEquals($previousSessionUser, $this->user)) {
+                $this->userChanged = true;
+            }
+
             $this->fixLifetime();
+
             Session::put(self::USER, $this->user);
             Session::put(self::TOKEN, $token);
 
+            Session::put(self::SHOPIFY_SESSION_ID, $access->session);
+
             return $this;
         }
+
+        Session::put(self::SHOPIFY_SESSION_ID, null);
 
         // Offline
         $this->shop->{self::TOKEN} = $token;
@@ -273,7 +315,7 @@ class ShopSession
     {
         if ($this->checkSameSiteNoneCompatible()) {
             config([
-                'session.secure'    => true,
+                'session.secure' => true,
                 'session.same_site' => 'none',
             ]);
         }

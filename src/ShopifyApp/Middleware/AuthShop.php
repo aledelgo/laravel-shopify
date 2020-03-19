@@ -23,7 +23,7 @@ class AuthShop
      * Handle an incoming request.
      *
      * @param \Illuminate\Http\Request $request The request object.
-     * @param \Closure                 $next    The "next" action to take.
+     * @param \Closure $next The "next" action to take.
      *
      * @return mixed
      */
@@ -51,6 +51,24 @@ class AuthShop
 
         // Grab the shop's myshopify domain from query or session
         $shopDomain = $this->getShopDomain($request, $session);
+
+        /*TODO: check
+        if shopif's ?session param is present in request and it is different from last stored in our session-storage
+        then a handleBadSession must be raised*/
+
+        if (!empty(ShopifyApp::shop()) && !empty($request->get("session"))) {
+            $currentShopifySessionId = $request->get("session");
+            if (Session::get(ShopSession::SHOPIFY_SESSION_ID) != $currentShopifySessionId) {
+                //HMAC has changed mean Shopify SESSION_ID changed (probably user switched account on same browser on shopify or between multiple tabs)
+                //we must reauthenticate because from shopify-session we may take the current shopify-user (linked to our laravel-accounts)
+                // We have a bad session
+                return $this->handleBadSession(
+                    $session,
+                    $request,
+                    $shopDomain
+                );
+            }
+        }
 
         // Get the shop based on domain and update the session service
         $shopModel = Config::get('shopify-app.shop_model');
@@ -95,12 +113,12 @@ class AuthShop
      *  - Headers
      *  - Session
      *
-     * @param \Illuminate\Http\Request                  $request The request object.
+     * @param \Illuminate\Http\Request $request The request object.
      * @param \OhMyBrew\ShopifyApp\Services\ShopSession $session The shop session instance.
      *
+     * @return bool|string
      * @throws Exception
      *
-     * @return bool|string
      */
     private function getShopDomain(Request $request, ShopSession $session)
     {
@@ -145,9 +163,9 @@ class AuthShop
      *
      * @param \Illuminate\Http\Request $request The request object.
      *
+     * @return bool|string
      * @throws Exception
      *
-     * @return bool|string
      */
     private function getQueryDomain(Request $request)
     {
@@ -160,7 +178,7 @@ class AuthShop
         // Verify
         $verify = [];
         foreach ($request->all() as $key => $value) {
-            $verify[$key] = is_array($value) ? '["'.implode('", "', $value).'"]' : $value;
+            $verify[$key] = is_array($value) ? '["' . implode('", "', $value) . '"]' : $value;
         }
 
         // Make sure there is no param spoofing attempt
@@ -205,7 +223,7 @@ class AuthShop
         // Verify
         $verify = [];
         foreach ($refererQueryParams as $key => $value) {
-            $verify[$key] = is_array($value) ? '["'.implode('", "', $value).'"]' : $value;
+            $verify[$key] = is_array($value) ? '["' . implode('", "', $value) . '"]' : $value;
         }
 
         // Make sure there is no param spoofing attempt
@@ -225,9 +243,9 @@ class AuthShop
      *
      * @param \Illuminate\Http\Request $request The request object.
      *
+     * @return bool|string
      * @throws Exception
      *
-     * @return bool|string
      */
     private function getHeaderDomain(Request $request)
     {
@@ -242,8 +260,8 @@ class AuthShop
         $timestamp = $request->header('X-Shop-Time');
 
         $verify = [
-            'shop'      => $shop,
-            'hmac'      => $signature,
+            'shop' => $shop,
+            'hmac' => $signature,
             'timestamp' => $timestamp,
         ];
 
@@ -256,7 +274,7 @@ class AuthShop
 
         foreach (compact('code', 'locale', 'state', 'id', 'ids') as $key => $value) {
             if ($value) {
-                $verify[$key] = is_array($value) ? '["'.implode('", "', $value).'"]' : $value;
+                $verify[$key] = is_array($value) ? '["' . implode('", "', $value) . '"]' : $value;
             }
         }
 
@@ -271,9 +289,9 @@ class AuthShop
     /**
      * Handles a bad shop session.
      *
-     * @param \OhMyBrew\ShopifyApp\Services\ShopSession $session    The shop session instance.
-     * @param \Illuminate\Http\Request                  $request    The request object.
-     * @param string|null                               $shopDomain The incoming shop domain.
+     * @param \OhMyBrew\ShopifyApp\Services\ShopSession $session The shop session instance.
+     * @param \Illuminate\Http\Request $request The request object.
+     * @param string|null $shopDomain The incoming shop domain.
      *
      * @return \Illuminate\Http\RedirectResponse
      */
@@ -281,7 +299,8 @@ class AuthShop
         ShopSession $session,
         Request $request,
         string $shopDomain = null
-    ) {
+    )
+    {
         // Clear all session variables (domain, token, user, etc)
         $session->forget();
 
